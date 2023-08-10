@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+
+<html>
+
+<br/>
+
+Message: <textarea id="message">This is my DataChannel message!</textarea> <br/>
+<button onclick="window.sendMessage()"> Send Message </button> <br />
+
+
+<script>
+//=======================Global Vars================================
+  //Data Channels
+  var Chan;
+//==============================================================================
+</script>
+
+<script>
+
+var ws;
+
+
+window.addEventListener("load", function(evt) {
+  ws = new WebSocket("ws://127.0.0.1:80/echo");  //address to connect to, /echo triggers go echo function
+
+  ws.onopen = function(evt) {
+      console.log("OPEN");
+  }
+  ws.onclose = function(evt) {
+      console.log("CLOSE");
+      ws = null;
+  }
+  ws.onmessage = function(evt) {
+      console.log("RESPONSE: " + evt.data);
+      //we're expecting the first websocket message to be the server's SDP
+      //so we'll go ahead and start the WEBRTC session with that SDP
+    //   const decodedSDP = atob(evt.data)
+      window.startSession(evt.data)
+  }
+  ws.onerror = function(evt) {
+      console.log("ERROR: " + evt.data);
+  }
+
+//=====================WEBRTC===========================
+
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: 'stun:stun.l.google.com:19302'
+      }
+    ]
+  })
+
+
+  var sends = 0;
+
+  pc.onsignalingstatechange = e => console.log(pc.signalingState)
+  pc.oniceconnectionstatechange = e => {
+    console.log(pc.iceConnectionState)
+  }
+  pc.onicecandidate = event => {
+    if(sends == 0){
+      //Send the original SDP, we'll send additional ice candidates from the
+      //onicecandidate event handler (trickle ICE)
+      ws.send( btoa(JSON.stringify(pc.localDescription)) )
+      console.log(pc.localDescription)
+
+      sends = 1
+    }
+  }
+
+
+
+  var previousData = 0;
+  var numMessages = 0;
+
+  function howManyMessages(){
+    console.log(numMessages + " Messages Received");
+  }
+
+  setInterval(howManyMessages, 100000);
+
+  const textDecoder = new TextDecoder('utf-8');
+
+  pc.ondatachannel = e => {
+          Chan = e.channel;
+          console.log('New DataChannel ' + Chan.label);
+          console.log("Ordered: " + Chan.ordered);
+          console.log("MaxRetransmits: " + Chan.maxRetransmits);
+          console.log("\n");
+          Chan.onclose = () => console.log(Chan.label + ' has closed');
+          Chan.onopen = () => console.log(Chan.label + ' has opened');
+          Chan.onmessage = function(e){
+            const decodedString = textDecoder.decode(e.data)
+            console.log(decodedString);
+            }
+          
+          ;
+
+          window.sendMessage = () => {
+            let message = document.getElementById('message').value
+            if (message === '') {
+              return alert('Message must not be empty')
+            }
+
+            Chan.send(message)
+          }
+
+  }
+
+
+  window.startSession = (e) => {
+    let sd = e;
+    if (sd === '') {
+      return alert('Session Description must not be empty')
+    }
+
+    pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(sd)))).catch(console.log)
+    console.log("Pog")
+    pc.createAnswer().then(d => pc.setLocalDescription(d)).catch(console.log)
+
+  }
+
+})
+
+</script>
+
+</html>
